@@ -17,7 +17,7 @@ Chainsaw tests execute against a **real Kubernetes cluster**, which involves:
 
 **Total per test: 10-45+ seconds**
 
-Additionally, **47% of Chainsaw tests use `sleep` statements** (462 out of 969 tests), indicating reliance on async controller behavior.
+> Additionally, **47% of Chainsaw tests use `sleep` statements** (462 out of 969 tests), indicating reliance on async controller behavior.
 
 ### What Tests Are Actually Testing ?
 
@@ -130,20 +130,25 @@ json.Unmarshal(rawPolicy, &policy)
 ```mermaid
 flowchart TD
   subgraph Chainsaw [CHAINSAW]
-    A[Commands pkg/cmd] --> B[Discovery pkg/discovery]
-    B --> C[Runner pkg/runner]
-
+    CMD[Commands<br/>pkg/cmd] --> DISC[Discovery<br/>pkg/discovery]
+    DISC --> RUN[Runner<br/>pkg/runner]
+    
     subgraph Engine [ENGINE]
-      OPS[Operations assert create etc]
-      BIND[Bindings variables]
-      TPL[Templating jp/cel]
-      CHK[Checks assertion trees]
-      CLIENT["client.Client Interface Get List Create Update Delete Patch"]
+      direction TB
+      OPS[Operations<br/>assert, create, etc.]
+      BIND[Bindings<br/>variables]
+      TPL[Templating<br/>jp/cel]
+      CHK[Checks<br/>assertion trees]
     end
-
-    C --> Engine
-    OPS --> CLIENT
-    CLIENT --> K8S[Kubernetes Cluster]
+    
+    RUN --> Engine
+    
+    subgraph ClientLayer [CLIENT LAYER]
+      CLIENT[client.Client Interface<br/>Get, List, Create, Update, Delete, Patch]
+    end
+    
+    OPS --> ClientLayer
+    ClientLayer --> K8S[(Kubernetes Cluster)]
   end
 ```
 
@@ -205,24 +210,27 @@ candidates, err := internal.Read(ctx, &obj, o.client)  // ← We intercept here
 ```mermaid
 flowchart TD
   subgraph ClusterFree [CLUSTER-FREE TEST EXECUTION]
-    TF[Test Framework Fluent API]
-    FL[Fixture Loader YAML/Chainsaw]
-
+    TF[Test Framework<br/>Fluent API] 
+    FL[Fixture Loader<br/>YAML/Chainsaw]
+    
     subgraph SimClient [Simulated Client]
-      STORE["In-Memory Store map[GVK][ns/name]Object"]
-      HOOK["On Create/Update: Invoke Kyverno Engine Apply mutations Return allow/deny"]
+      STORE[In-Memory Store<br/>map GVK ns/name Object]
+      HOOK[Admission Hook<br/>On Create/Update]
     end
-
-    subgraph Engine [Kyverno Engine Unchanged]
+    
+    subgraph KyvernoEngine [Kyverno Engine - Unchanged]
       V[Validate]
       M[Mutate]
       G[Generate]
     end
-
-    TF --> SimClient
-    FL --> SimClient
-    STORE --> HOOK
-    HOOK --> Engine
+    
+    TF --> |1. Setup policies & resources| SimClient
+    FL --> |Load YAML| TF
+    TF --> |2. Create resource| STORE
+    STORE --> |3. Trigger admission| HOOK
+    HOOK --> |4. Invoke| KyvernoEngine
+    KyvernoEngine --> |5. Return allow/deny + mutations| HOOK
+    HOOK --> |6. Store or reject| STORE
   end
 ```
 
