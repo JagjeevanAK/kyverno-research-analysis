@@ -17,6 +17,7 @@ Chainsaw tests execute against a **real Kubernetes cluster**, which involves:
 
 **Total per test: 10-45+ seconds**
 
+> [!NOTE]
 > Additionally, **47% of Chainsaw tests use `sleep` statements** (462 out of 969 tests), indicating reliance on async controller behavior.
 
 ### What Tests Are Actually Testing ?
@@ -34,6 +35,7 @@ Analysis of the 969 Chainsaw tests by category:
 | **Image verification** | 47 | Yes - needs registry access |
 | **Other (cleanup, TTL, events)** | ~100 | Yes - needs controllers |
 
+> [!IMPORTANT]
 > **Key Insight:** Approximately **30-40% of tests** (290-390 tests) are fundamentally testing **policy evaluation logic** that doesn't inherently require a cluster.
 
 
@@ -119,6 +121,7 @@ var policy kyvernov1.ClusterPolicy
 json.Unmarshal(rawPolicy, &policy)
 ```
 
+> [!TIP]
 > **Opportunity:** Load from YAML files like Chainsaw does, reusing existing test data.
 
 ---
@@ -197,6 +200,7 @@ err := o.client.Create(ctx, &obj)  // ← We intercept here
 candidates, err := internal.Read(ctx, &obj, o.client)  // ← We intercept here
 ```
 
+> [!TIP]
 > **Solution:** Replace the client with a **simulated client** that:
 > 1. Stores resources in memory
 > 2. **Invokes Kyverno policy engine** on Create/Update (simulating admission)
@@ -619,6 +623,7 @@ The codebase already has excellent building blocks:
 
 ### Challenge 1: RESTMapper Dependency
 
+> [!WARNING]
 > **Problem:** Many operations need `RESTMapper` to convert GVK↔GVR
 
 **Solution:** Kyverno's `fakeDiscoveryClient` already handles this:
@@ -637,12 +642,14 @@ func NewFakeDiscoveryClient(registeredResources []schema.GroupVersionResource) *
 
 ### Challenge 2: Namespace-Scoped vs Cluster-Scoped
 
+> [!WARNING]
 > **Problem:** Need to know if resources are namespaced
 
 **Solution:** Extend fake discovery client or use `IsObjectNamespaced()` with a static map.
 
 ### Challenge 3: Context Entries (APICall, ConfigMap)
 
+> [!WARNING]
 > **Problem:** Some policies use `context.apiCall` or `context.configMap`
 
 **Solution:** 
