@@ -3,7 +3,7 @@
 
 ## 1. Problem Statement
 
-### Why Chainsaw Tests Are Slow
+### Why Chainsaw Tests Are Slow ?
 
 Chainsaw tests execute against a **real Kubernetes cluster**, which involves:
 
@@ -19,7 +19,7 @@ Chainsaw tests execute against a **real Kubernetes cluster**, which involves:
 
 Additionally, **47% of Chainsaw tests use `sleep` statements** (462 out of 969 tests), indicating reliance on async controller behavior.
 
-### What Tests Are Actually Testing
+### What Tests Are Actually Testing ?
 
 Analysis of the 969 Chainsaw tests by category:
 
@@ -34,7 +34,7 @@ Analysis of the 969 Chainsaw tests by category:
 | **Image verification** | 47 | Yes - needs registry access |
 | **Other (cleanup, TTL, events)** | ~100 | Yes - needs controllers |
 
-**Key Insight:** Approximately **30-40% of tests** (290-390 tests) are fundamentally testing **policy evaluation logic** that doesn't inherently require a cluster.
+> **Key Insight:** Approximately **30-40% of tests** (290-390 tests) are fundamentally testing **policy evaluation logic** that doesn't inherently require a cluster.
 
 
 ## 2. Kyverno Engine Architecture Analysis
@@ -119,7 +119,7 @@ var policy kyvernov1.ClusterPolicy
 json.Unmarshal(rawPolicy, &policy)
 ```
 
-**Opportunity:** Load from YAML files like Chainsaw does, reusing existing test data.
+> **Opportunity:** Load from YAML files like Chainsaw does, reusing existing test data.
 
 ---
 
@@ -180,7 +180,7 @@ client = &tclient.FakeClient{
 }
 ```
 
-### Why Chainsaw Needs a Cluster (Interception Points)
+### Why Chainsaw Needs a Cluster (Interception Points) ?
 
 Every mutating operation goes through the client:
 
@@ -192,10 +192,10 @@ err := o.client.Create(ctx, &obj)  // ← We intercept here
 candidates, err := internal.Read(ctx, &obj, o.client)  // ← We intercept here
 ```
 
-**Solution:** Replace the client with a **simulated client** that:
-1. Stores resources in memory
-2. **Invokes Kyverno policy engine** on Create/Update (simulating admission)
-3. Returns resources from memory for assertions
+> **Solution:** Replace the client with a **simulated client** that:
+> 1. Stores resources in memory
+> 2. **Invokes Kyverno policy engine** on Create/Update (simulating admission)
+> 3. Returns resources from memory for assertions
 
 
 ## 4. Proposed Architecture
@@ -539,7 +539,6 @@ func TestValidationPolicy_RejectDeploymentWithoutLabels(t *testing.T) {
 | `webhook-configurations/*` | Tests controller behavior |
 | `globalcontext/*` | May need external API calls |
 
----
 
 ## 6. Implementation Phases
 
@@ -582,7 +581,6 @@ func TestValidationPolicy_RejectDeploymentWithoutLabels(t *testing.T) {
 | Migration guide | How to port Chainsaw tests |
 | Contribution guidelines | Best practices for new tests |
 
----
 
 ## 7. Technical Decisions
 
@@ -613,7 +611,7 @@ The codebase already has excellent building blocks:
 
 ### Challenge 1: RESTMapper Dependency
 
-**Problem:** Many operations need `RESTMapper` to convert GVK↔GVR
+> **Problem:** Many operations need `RESTMapper` to convert GVK↔GVR
 
 **Solution:** Kyverno's `fakeDiscoveryClient` already handles this:
 
@@ -631,13 +629,13 @@ func NewFakeDiscoveryClient(registeredResources []schema.GroupVersionResource) *
 
 ### Challenge 2: Namespace-Scoped vs Cluster-Scoped
 
-**Problem:** Need to know if resources are namespaced
+> **Problem:** Need to know if resources are namespaced
 
 **Solution:** Extend fake discovery client or use `IsObjectNamespaced()` with a static map.
 
 ### Challenge 3: Context Entries (APICall, ConfigMap)
 
-**Problem:** Some policies use `context.apiCall` or `context.configMap`
+> **Problem:** Some policies use `context.apiCall` or `context.configMap`
 
 **Solution:** 
 - For tests that need these: mock the `ContextLoaderFactory` with pre-defined responses
@@ -743,25 +741,3 @@ func TestFromChainsawTestData(t *testing.T) {
     result.AssertBlocked()
 }
 ``` -->
-
-
-## 12. References
-
-### Key Files in Kyverno Codebase
-- `pkg/engine/engine.go` - Main policy engine
-- `pkg/engine/validation.go` - Validation logic
-- `pkg/engine/mutation.go` - Mutation logic
-- `pkg/engine/validation_test.go` - Existing unit test patterns
-- `pkg/clients/dclient/fake.go` - Fake K8s client
-- `pkg/webhooks/resource/fake.go` - Fake webhook handlers
-
-### Key Files in Chainsaw Codebase
-- `pkg/client/client.go` - Client interface
-- `pkg/client/testing/fake_client.go` - Fake client implementation
-- `pkg/engine/operations/` - Operation implementations
-- `pkg/loaders/` - YAML loading utilities
-
-### Chainsaw Test Examples
-- `test/conformance/chainsaw/validating-policies/` - Validation tests
-- `test/conformance/chainsaw/mutating-policies/` - Mutation tests
-- `test/conformance/chainsaw/autogen/` - Autogen tests
