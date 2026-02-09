@@ -18,7 +18,7 @@ Chainsaw tests execute against a **real Kubernetes cluster**, which involves:
 **Total per test: 10-45+ seconds**
 
 > [!NOTE]
-> Additionally, **47% of Chainsaw tests use `sleep` statements** (462 out of 969 tests), indicating reliance on async controller behavior.
+> Additionally, **26.4% of Chainsaw test specs mention `sleep`**: 256 of 969 `chainsaw-test.yaml` files contain the string `sleep`. If you count all YAML under `test/conformance/chainsaw` (including templates), 465 files contain `sleep`.
 
 ### What Tests Are Actually Testing ?
 
@@ -37,6 +37,9 @@ Analysis of the 969 Chainsaw tests by category:
 
 > [!IMPORTANT]
 > **Key Insight:** Approximately **30-40% of tests** (290-390 tests) are fundamentally testing **policy evaluation logic** that doesn't inherently require a cluster.
+
+> [!NOTE]
+> Category counts above are estimates from manual categorization; an automated breakdown script is TBD.
 
 
 ## 2. Kyverno Engine Architecture Analysis
@@ -60,7 +63,7 @@ flowchart TD
 
 ### Engine Dependencies (Dependency Injection Design)
 
-The engine is designed with **dependency injection**. External dependencies can be set to `nil`:
+The engine is designed with **dependency injection**. Some external dependencies can be set to `nil` (for example, the Kubernetes client and exception selector). The final argument is `isCluster *bool`; `nil` means "default to true":
 
 ```go
 // From pkg/engine/validation_test.go - ALREADY tests without a cluster!
@@ -72,9 +75,12 @@ e := NewEngine(
     imageverifycache.DisabledImageVerifyCache(),
     contextLoader,
     nil,                  // ← nil exception selector
-    nil,                  // ← nil metrics
+    nil,                  // ← isCluster (nil => default true)
 )
 ```
+
+> [!NOTE]
+> `NewEngine` always initializes metrics internally (it does not accept a metrics argument).
 
 ### Engine Struct Dependencies
 
@@ -83,11 +89,12 @@ type engine struct {
     configuration     config.Configuration           // Global configuration
     jp                jmespath.Interface             // JMESPath evaluator
     client            engineapi.Client               // K8s API client (can be nil)
+    isCluster         bool                           // Cluster mode flag (defaults true)
     rclientFactory    engineapi.RegistryClientFactory // Container registry access
     ivCache           imageverifycache.Client        // Image verification caching
     contextLoader     engineapi.ContextLoaderFactory // Context entry loader
     exceptionSelector engineapi.PolicyExceptionSelector // Policy exceptions
-    metrics           metrics.PolicyEngineMetrics    // Observability
+    metrics           metrics.PolicyEngineMetrics    // Observability (initialized internally)
 }
 ```
 
@@ -100,7 +107,7 @@ Kyverno already has extensive mocking infrastructure:
 | `dclient.NewFakeClient()` | `pkg/clients/dclient/fake.go` | Fake K8s dynamic client |
 | `NewFakeDiscoveryClient()` | `pkg/clients/dclient/fake.go` | GVR/GVK mapping |
 | `MockContext` | `pkg/engine/context/mock_context.go` | Context variable validation |
-| `NewFakeHandlers()` | `pkg/webhooks/resource/fake.go` | Complete webhook handler setup |
+| `NewFakeHandlers()` | `pkg/webhooks/resource/fake.go` | Webhook handlers wired to fake clients; UpdateRequest generator is no-op |
 | `cosign.SetMock()` | `pkg/cosign/mock.go` | Image signature verification |
 | CEL library mocks | `pkg/cel/libs/*/mock.go` | Resource, image, globalcontext |
 
