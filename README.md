@@ -675,6 +675,135 @@ func NewFakeDiscoveryClient(registeredResources []schema.GroupVersionResource) *
 4. **Easier Debugging**: Step through Go code vs. kubectl debugging
 5. **Lower Barrier**: Contributors can test without K8s knowledge
 
+
+## 11. Open Challenge: Controller Informers
+
+> [!IMPORTANT]
+> **Maintainer Feedback:** The key architectural challenge is how informers on Kyverno controllers will fire events when testing without a real API server.
+
+### The Problem
+
+Our initial proposal focuses on **admission-time testing** (validate/mutate at webhook). However, Kyverno has **background controllers** that:
+
+1. Watch for resources via **informers** (event-driven)
+2. React to add/update/delete events
+3. Perform async operations (background mutations, policy reports, cleanup)
+
+### Example: UpdateRequest Workflow
+
+```mermaid
+flowchart LR
+    subgraph Admission ["Admission Controller"]
+        A1[Receives AdmissionRequest]
+        A2[Creates UpdateRequest CR]
+    end
+    
+    subgraph Storage ["In-Memory / Cluster"]
+        UR[(UpdateRequest<br/>stored)]
+    end
+    
+    subgraph Background ["Background Controller"]
+        B1[Informer fires event]
+        B2[Picks up UpdateRequest]
+        B3[Performs mutation on target]
+    end
+    
+    A1 --> A2
+    A2 --> UR
+    UR -.->|"Informer watch<br/>(needs event!)"| B1
+    B1 --> B2
+    B2 --> B3
+```
+
+**The challenge:** If we use a fake client that tests see, but Kyverno controllers expect informer events to fire, **how do informers get notified when there's no API server?**
+
+### Two Testing Scopes
+
+| Scope | What We Test | Informers Needed? |
+|-------|--------------|-------------------|
+| **Engine-level** | Policy evaluation logic (CEL, patterns, mutations) | No |
+| **Controller-level** | Multi-controller workflows (admission → background → reports) | Yes |
+
+### Potential Solutions
+
+#### Option 1: Fake Informers with Event Injection
+
+The `k8s.io/client-go` library supports fake informers that can be manually fed events:
+
+```go
+// Conceptual approach
+fakeClient := fake.NewSimpleDynamicClient(scheme, objects...)
+informerFactory := dynamicinformer.NewDynamicSharedInformerFactory(fakeClient, 0)
+
+// When a resource is created, manually inject the event
+informer.GetStore().Add(obj)  // Triggers handlers
+```
+
+**Challenge:** Standard fake clients don't automatically trigger informer events. We'd need to:
+- Wrap the fake client to intercept Create/Update/Delete
+- Manually inject events into the informer's store
+- Or use controller-runtime's fake cache if Kyverno uses it
+
+#### Option 2: Event-Driven Test Harness
+
+Build a test harness that runs real controllers with fake I/O:
+
+```go
+harness := NewTestHarness(t)
+harness.CreatePolicy(policy)
+harness.CreateResource(deployment)
+
+// Wait for background controller to process
+harness.WaitForCondition(func() bool {
+    ur := harness.GetUpdateRequest("ur-name")
+    return ur.Status.State == "Completed"
+}, 5*time.Second)
+
+harness.AssertResourceHasLabel(deployment, "mutated", "true")
+```
+
+#### Option 3: Tick-Based Execution Model
+
+Instead of real waits, manually advance the reconcile loop:
+
+```go
+harness.CreateResource(deployment)
+harness.Tick()  // Process one reconcile cycle
+harness.Tick()  // Process another
+harness.AssertState(...)
+```
+
+**Benefit:** Deterministic, faster tests
+**Challenge:** More complex to implement
+
+### Open Questions
+
+1. **Controller architecture:** Does Kyverno use:
+   - Standard `client-go` SharedInformers?
+   - Controller-runtime's `cache.Cache`?
+   - Custom informer setup?
+
+2. **Which controllers are highest priority for testing?**
+   - Background mutation controller?
+   - Report controller?
+   - Cleanup controller?
+
+3. **Execution model preference:**
+   - Real goroutines with short waits (simpler, slightly slower)?
+   - Deterministic tick-through model (faster, more complex)?
+
+4. **Acceptable test time for controller tests:**
+   - <100ms (like engine tests)?
+   - <1 second (acceptable for multi-controller flows)?
+
+### Next Steps for Research
+
+- [ ] Trace how `UpdateRequest` informer is set up in Kyverno controllers
+- [ ] Identify if controller-runtime patterns are used
+- [ ] Prototype a minimal fake informer that triggers one controller
+- [ ] Document which controller workflows are highest priority to test
+
+
 <!-- 
 ## 12. Complete Example Test
 
